@@ -235,4 +235,4 @@ if ($remaining.Count -gt 0) {
     throw "Some generated artifacts still exist after cleanup."
 }
 
-Write-Host "Generated artifacts removed. Scripts, docs, plans, and user-provided release packages were preserved."
+Write-Host "Generated artifacts removed. Scripts, docs, plans, and remaining release packages were preserved."

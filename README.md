@@ -52,9 +52,17 @@ https://github.com/openai/codex/releases
 CodexRebuild-UpdateCore-OneClick.cmd
 ```
 
-它会更新 `.\Core`，重新构建 `.\Codex`，并运行 smoke test。
+它会更新 `.\Core`，重新构建 `.\Codex`，并运行 smoke test。更新前如果已经存在旧 `.\Core`，脚本会先备份到 `.\core-archive`。更新成功后，脚本会删除本目录中本次使用的 release zip 或 release 文件夹，以及临时 core staging 目录。
 
 如果文件在别的目录，可以把 zip 拖到 `CodexRebuild-UpdateCore-OneClick.cmd` 上。
+
+如果需要恢复上一次备份的旧 Core，双击：
+
+```text
+CodexRebuild-RestoreCore-OneClick.cmd
+```
+
+它会从 `.\core-archive` 选择最新的有效 Core 备份，恢复到 `.\Core`，然后重新构建 `.\Codex` 并运行 smoke test。
 
 ## 可选补丁
 
@@ -97,7 +105,7 @@ CodexRebuild-Remove-OneClick.cmd
 - 备份目录
 - 生成的启动脚本和快捷方式
 
-脚本文件、README、计划文档和你自己放进来的 release 包会保留。
+脚本文件、README、计划文档和剩余 release 包会保留。注意：成功执行 `CodexRebuild-UpdateCore-OneClick.cmd` 后，本次使用的本目录 release 包会被自动删除；`.\core-archive` 也属于生成备份目录，会被清理脚本删除。
 
 ## 工作原理
 
@@ -126,6 +134,7 @@ CodexRebuild-*.cmd     双击入口
 .\Core                 可选的新 Codex 核心文件
 .\UserData             重建版专用用户数据
 .\archive              旧重建副本归档
+.\core-archive         旧 Core 备份，用于 RestoreCore
 GPT-README.md          更完整的维护说明
 ```
 

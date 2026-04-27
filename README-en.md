@@ -52,9 +52,17 @@ Put the zip in this folder, then double-click:
 CodexRebuild-UpdateCore-OneClick.cmd
 ```
 
-It updates `.\Core`, rebuilds `.\Codex`, and runs the smoke test.
+It updates `.\Core`, rebuilds `.\Codex`, and runs the smoke test. If an older `.\Core` exists, it is backed up under `.\core-archive` first. After a successful update, the script removes the release zip or release folder used from this script folder, plus temporary core staging folders.
 
 If the file is somewhere else, drag the zip onto `CodexRebuild-UpdateCore-OneClick.cmd`.
+
+To restore the latest backed-up old Core, double-click:
+
+```text
+CodexRebuild-RestoreCore-OneClick.cmd
+```
+
+It selects the latest valid Core backup from `.\core-archive`, restores it into `.\Core`, rebuilds `.\Codex`, and runs the smoke test.
 
 ## Optional Patches
 
@@ -97,7 +105,7 @@ It removes known generated files and folders, such as:
 - backup folders
 - generated launch script and shortcut
 
-It keeps scripts, README files, plan docs, and release packages you placed here.
+It keeps scripts, README files, plan docs, and remaining release packages. Note: after `CodexRebuild-UpdateCore-OneClick.cmd` succeeds, the local release package it used is removed automatically; `.\core-archive` is also a generated backup folder and is removed by the cleanup script.
 
 ## How It Works
 
@@ -126,6 +134,7 @@ CodexRebuild-*.cmd     double-click launchers
 .\Core                 optional new Codex core files
 .\UserData             user data for the rebuilt app
 .\archive              archived old rebuilt copies
+.\core-archive         old Core backups used by RestoreCore
 GPT-README.md          longer maintenance notes
 ```
 

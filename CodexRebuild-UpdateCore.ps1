@@ -22,6 +22,7 @@ Set-StrictMode -Version Latest
 
 $corePackageStem = "codex-x86_64-pc-windows-msvc.exe"
 $temporaryCoreExtractionRoot = $null
+$coreExtractionRoot = $null
 
 function Resolve-RootPath {
     param([string] $Path)
@@ -42,6 +43,44 @@ function Resolve-RootPath {
 function Get-Sha256 {
     param([Parameter(Mandatory = $true)][string] $Path)
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function Test-PathUnderRoot {
+    param(
+        [Parameter(Mandatory = $true)][string] $RootPath,
+        [Parameter(Mandatory = $true)][string] $Path
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path).TrimEnd("\")
+    $rootFullPath = [System.IO.Path]::GetFullPath($RootPath).TrimEnd("\")
+    $expectedPrefix = $rootFullPath + "\"
+    return $fullPath.Equals($rootFullPath, [StringComparison]::OrdinalIgnoreCase) -or
+        $fullPath.StartsWith($expectedPrefix, [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Remove-EmptyDirectoryIfPresent {
+    param([Parameter(Mandatory = $true)][string] $Path)
+
+    if ((Test-Path -LiteralPath $Path -PathType Container) -and
+        -not @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue).Count) {
+        Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function New-UniqueTimestampPath {
+    param(
+        [Parameter(Mandatory = $true)][string] $Parent,
+        [Parameter(Mandatory = $true)][string] $Prefix
+    )
+
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $candidate = Join-Path $Parent "$Prefix-$stamp"
+    $suffix = 1
+    while (Test-Path -LiteralPath $candidate) {
+        $candidate = Join-Path $Parent "$Prefix-$stamp-$suffix"
+        $suffix++
+    }
+    return $candidate
 }
 
 function Find-CoreSourceFile {
@@ -192,6 +231,7 @@ function Expand-CoreCandidateIfNeeded {
     if ($Candidate.Type -eq "Directory") {
         return [pscustomobject]@{
             CoreDir = Find-CoreDirectoryWithin -Directory $Candidate.Path
+            ExtractRoot = $null
             TemporaryRoot = $null
         }
     }
@@ -223,6 +263,7 @@ function Expand-CoreCandidateIfNeeded {
 
     return [pscustomobject]@{
         CoreDir = Find-CoreDirectoryWithin -Directory $extractRoot
+        ExtractRoot = $extractRoot
         TemporaryRoot = if ($DryRun) { $extractRoot } else { $null }
     }
 }
@@ -279,9 +320,9 @@ function Install-CoreFiles {
         return $coreDir
     }
 
-    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $installStageRoot = Join-Path $RootPath ".core-install-staging"
-    $installStage = Join-Path $installStageRoot "Core-$stamp"
+    New-Item -ItemType Directory -Path $installStageRoot -Force | Out-Null
+    $installStage = New-UniqueTimestampPath -Parent $installStageRoot -Prefix "Core"
     if (Test-Path -LiteralPath $installStage) {
         throw "Core install staging directory already exists: $installStage"
     }
@@ -310,14 +351,47 @@ function Install-CoreFiles {
     if (Test-Path -LiteralPath $coreDir -PathType Container) {
         $archiveRoot = Join-Path $RootPath "core-archive"
         New-Item -ItemType Directory -Path $archiveRoot -Force | Out-Null
-        $archivePath = Join-Path $archiveRoot "Core-previous-$stamp"
+        $archivePath = New-UniqueTimestampPath -Parent $archiveRoot -Prefix "Core-previous"
         Move-Item -LiteralPath $coreDir -Destination $archivePath -Force
-        Write-Host "Archived previous Core: $archivePath"
+        Write-Host "Backed up previous Core: $archivePath"
     }
 
     Move-Item -LiteralPath $installStage -Destination $coreDir -Force
 
     return $coreDir
+}
+
+function Remove-CompletedUpdateArtifacts {
+    param(
+        [Parameter(Mandatory = $true)][string] $RootPath,
+        [Parameter(Mandatory = $true)][object] $Candidate,
+        [string] $ExtractRoot
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($ExtractRoot) -and
+        (Test-Path -LiteralPath $ExtractRoot -PathType Container) -and
+        (Test-PathUnderRoot -RootPath $RootPath -Path $ExtractRoot)) {
+        Write-Host "Removing update staging directory: $ExtractRoot"
+        Remove-Item -LiteralPath $ExtractRoot -Recurse -Force -ErrorAction Stop
+    }
+
+    Remove-EmptyDirectoryIfPresent -Path (Join-Path $RootPath ".core-staging")
+    Remove-EmptyDirectoryIfPresent -Path (Join-Path $RootPath ".core-install-staging")
+
+    $sourcePath = $Candidate.Path
+    $sourceLeaf = Split-Path -Leaf $sourcePath
+    if ((Test-Path -LiteralPath $sourcePath) -and
+        (Test-PathUnderRoot -RootPath $RootPath -Path $sourcePath) -and
+        ($sourceLeaf -like "$corePackageStem*")) {
+        Write-Host "Removing used core release package from script folder: $sourcePath"
+        if (Test-Path -LiteralPath $sourcePath -PathType Container) {
+            Remove-Item -LiteralPath $sourcePath -Recurse -Force -ErrorAction Stop
+        } else {
+            Remove-Item -LiteralPath $sourcePath -Force -ErrorAction Stop
+        }
+    } elseif (Test-Path -LiteralPath $sourcePath) {
+        Write-Host "Keeping source package because it is outside the script folder: $sourcePath"
+    }
 }
 
 $rootPath = Resolve-RootPath -Path $Root
@@ -329,6 +403,7 @@ try {
     $candidate = Resolve-CoreCandidate -RootPath $rootPath -Path $SourcePath
     $resolvedCore = Expand-CoreCandidateIfNeeded -Candidate $candidate -RootPath $rootPath -DryRun:$DryRun
     $temporaryCoreExtractionRoot = $resolvedCore.TemporaryRoot
+    $coreExtractionRoot = $resolvedCore.ExtractRoot
     $coreSourceDir = $resolvedCore.CoreDir
     $coreFiles = @(Get-CoreFiles -Directory $coreSourceDir)
     $versionOutput = Assert-CoreVersion -CodexExePath (($coreFiles | Where-Object { $_.Role -eq "codex cli" } | Select-Object -First 1).SourcePath)
@@ -365,28 +440,30 @@ try {
         throw "Rebuild script failed with exit code $LASTEXITCODE"
     }
 
-    if ($DryRun -or $NoSmokeTest) {
+    if ($DryRun) {
         exit 0
     }
 
-    $testScript = Join-Path $rootPath "CodexRebuild-Test.ps1"
-    if (-not (Test-Path -LiteralPath $testScript -PathType Leaf)) {
-        throw "Missing smoke test script: $testScript"
+    if (-not $NoSmokeTest) {
+        $testScript = Join-Path $rootPath "CodexRebuild-Test.ps1"
+        if (-not (Test-Path -LiteralPath $testScript -PathType Leaf)) {
+            throw "Missing smoke test script: $testScript"
+        }
+
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $testScript -Root $rootPath -StopExisting
+        if ($LASTEXITCODE -ne 0) {
+            throw "Smoke test script failed with exit code $LASTEXITCODE"
+        }
     }
 
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $testScript -Root $rootPath -StopExisting
-    if ($LASTEXITCODE -ne 0) {
-        throw "Smoke test script failed with exit code $LASTEXITCODE"
-    }
+    Remove-CompletedUpdateArtifacts -RootPath $rootPath -Candidate $candidate -ExtractRoot $coreExtractionRoot
+    exit 0
 } finally {
     if ($temporaryCoreExtractionRoot -and (Test-Path -LiteralPath $temporaryCoreExtractionRoot -PathType Container)) {
         $temporaryCoreExtractionParent = Split-Path -Parent $temporaryCoreExtractionRoot
         Remove-Item -LiteralPath $temporaryCoreExtractionRoot -Recurse -Force -ErrorAction SilentlyContinue
-        if ($temporaryCoreExtractionParent -and
-            (Split-Path -Leaf $temporaryCoreExtractionParent) -eq "CodexRebuild-CoreDryRun" -and
-            (Test-Path -LiteralPath $temporaryCoreExtractionParent -PathType Container) -and
-            -not @(Get-ChildItem -LiteralPath $temporaryCoreExtractionParent -Force -ErrorAction SilentlyContinue).Count) {
-            Remove-Item -LiteralPath $temporaryCoreExtractionParent -Force -ErrorAction SilentlyContinue
+        if ($temporaryCoreExtractionParent -and (Split-Path -Leaf $temporaryCoreExtractionParent) -eq "CodexRebuild-CoreDryRun") {
+            Remove-EmptyDirectoryIfPresent -Path $temporaryCoreExtractionParent
         }
     }
 }

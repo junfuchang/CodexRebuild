@@ -24,7 +24,7 @@ To remove generated rebuild outputs and return this folder to script/doc/plan-on
 .\CodexRebuild-Remove-OneClick.cmd
 ```
 
-The remove script deletes only known generated artifacts such as `.\Codex`, `.\Core`, backups, staging folders, runtime user data, and the generated `CodexRebuild-Launch.cmd`. It preserves scripts, docs, plans, and user-provided release packages.
+The remove script deletes only known generated artifacts such as `.\Codex`, `.\Core`, backups, staging folders, runtime user data, and the generated `CodexRebuild-Launch.cmd`. It preserves scripts, docs, plans, and remaining user-provided release packages. A successful core update removes the selected local release package automatically.
 
 To update the rebuilt app with a newer Codex core, put a new release folder or zip next to these scripts:
 
@@ -47,7 +47,7 @@ Then double-click:
 .\CodexRebuild-UpdateCore-OneClick.cmd
 ```
 
-That one-click update script searches the current script folder for `codex-x86_64-pc-windows-msvc.exe*` directories or `codex-x86_64-pc-windows-msvc.exe*.zip` archives, extracts zip files when needed, validates the three core binaries, updates `.\Core`, rebuilds `.\Codex`, and runs the smoke test.
+That one-click update script searches the current script folder for `codex-x86_64-pc-windows-msvc.exe*` directories or `codex-x86_64-pc-windows-msvc.exe*.zip` archives, extracts zip files when needed, validates the three core binaries, backs up the old `.\Core` into `.\core-archive`, updates `.\Core`, rebuilds `.\Codex`, and runs the smoke test. After a successful update, it removes the selected local release folder/zip and temporary core staging folders.
 
 If the release package is somewhere else, drag the release folder or zip onto `CodexRebuild-UpdateCore-OneClick.cmd`, or run:
 
@@ -62,6 +62,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\CodexRebuild-UpdateCore.p
 ```
 
 Dry-run validates the selected release package and passes that selected package into the rebuild dry-run. It does not validate an older `.\Core` folder. For zip packages, it extracts only to a temporary validation directory and removes that directory before exiting.
+
+Restore the latest backed-up old Core:
+
+```text
+.\CodexRebuild-RestoreCore-OneClick.cmd
+```
+
+`CodexRebuild-RestoreCore.ps1` selects the newest valid backup under `.\core-archive` by default, restores it into `.\Core`, rebuilds `.\Codex`, and runs the smoke test. Drag a specific backup folder onto the one-click CMD or pass `-BackupPath "<backup-folder>"` to restore a specific backup.
 
 Rebuild from the already installed `.\Core` folder:
 
@@ -164,6 +172,9 @@ codex-windows-sandbox-setup.exe   -> codex-windows-sandbox-setup.exe
 - Validates required runtime files before switching: `better-sqlite3`, `node-pty`, and the bundled Browser Use skill.
 - Replaces the three Codex core files only when `.\Core` or `-CoreDir` is available.
 - Verifies SHA256 hashes after patching when core replacement is enabled.
+- Backs up the old `.\Core` under `.\core-archive` before installing a new Core.
+- Removes the selected local core release package and core staging directories only after UpdateCore succeeds.
+- Restores old Core backups with `CodexRebuild-RestoreCore.ps1` / `CodexRebuild-RestoreCore-OneClick.cmd`.
 - Archives the previous rebuilt copy under `archive`.
 - Moves the staged copy into `.\Codex`.
 - Creates or updates `CodexRebuild-Launch.cmd`.

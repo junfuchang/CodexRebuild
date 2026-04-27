@@ -4,6 +4,8 @@ CodexRebuild is a set of Windows scripts that copy the Microsoft Store Codex des
 
 It does not modify the original Store app under `%ProgramFiles%\WindowsApps`. All changes happen under `.\Codex` in this folder.
 
+Its main value is enabling Fast mode, showing the Plugins entry, and adding real local permanent chat deletion for API-key based Windows Codex usage. Updating the Codex core is only an optional maintenance feature.
+
 中文说明：见 [README.md](README.md).
 
 ## Who It Is For
@@ -11,6 +13,15 @@ It does not modify the original Store app under `%ProgramFiles%\WindowsApps`. Al
 - You already installed the Microsoft Store version of Codex.
 - You want a writable Codex copy for local patches.
 - You do not want to edit the protected WindowsApps package.
+- You use Codex with an API key, but still want Fast mode and the Plugins entry.
+
+## Highlights
+
+- Enable Fast mode for API-key based Windows Codex usage.
+- Show the Plugins entry even when Codex is authenticated with an API key.
+- Add real local permanent delete buttons for chats: right-click delete in the left chat list, and delete archived chats from Settings.
+- Chat deletion removes local session records and related files, then asks you to restart Codex to refresh the list.
+- All patches apply only to the writable `.\Codex` copy. The original Microsoft Store app stays unchanged.
 
 ## Quick Start
 
@@ -32,7 +43,33 @@ After it succeeds, launch Codex from the desktop shortcut `CodexRebuild.lnk`, or
 CodexRebuild-Launch.cmd
 ```
 
-## Update The Codex Core
+## Enable Highlight Features
+
+These patches only modify `.\Codex\app`. They do not modify the original Store app.
+
+Enable Fast mode:
+
+```text
+CodexRebuild-EnableFastMode-OneClick.cmd
+```
+
+Show the Plugins entry when Codex is authenticated with an API key:
+
+```text
+CodexRebuild-EnablePluginsForApiKey-OneClick.cmd
+```
+
+Add permanent local delete actions for chats:
+
+```text
+CodexRebuild-EnableTrueDelete-OneClick.cmd
+```
+
+After a Store app update, run `CodexRebuild-OneClick.cmd` again, then reapply only the patches you need.
+
+## Optional: Update The Codex Core
+
+This is not the main feature. Use it only when you already downloaded a new core, or when you need to replace `codex.exe`, `codex-windows-sandbox.exe`, and `codex-windows-sandbox-setup.exe`.
 
 Download the Windows package from OpenAI Codex releases:
 
@@ -63,30 +100,6 @@ CodexRebuild-RestoreCore-OneClick.cmd
 ```
 
 It selects the latest valid Core backup from `.\core-archive`, restores it into `.\Core`, rebuilds `.\Codex`, and runs the smoke test.
-
-## Optional Patches
-
-These patches only modify `.\Codex\app`. They do not modify the original Store app.
-
-Enable Fast mode:
-
-```text
-CodexRebuild-EnableFastMode-OneClick.cmd
-```
-
-Show the Plugins entry when Codex is authenticated with an API key:
-
-```text
-CodexRebuild-EnablePluginsForApiKey-OneClick.cmd
-```
-
-Add permanent local delete actions for chats:
-
-```text
-CodexRebuild-EnableTrueDelete-OneClick.cmd
-```
-
-After a Store app update, run `CodexRebuild-OneClick.cmd` again, then reapply only the patches you need.
 
 ## Clean Generated Files
 

@@ -153,6 +153,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\CodexRebuild-EnableTrueDe
 
 This adds a permanent delete entry to the left sidebar chat context menu and a Delete button in Settings -> Data controls -> Archived chats. It patches only `.\Codex\app`, writes a helper into the rebuilt app resources, and uses the existing local hard-delete semantics for session JSONL files, archived session JSONL files, `session_index.jsonl`, `state_5.sqlite`, `logs_2.sqlite`, and descendant subagent threads. It also removes leftover internal Codex files/directories whose names contain the deleted thread id under safe `~\.codex` roots. It does not recursively delete arbitrary project folders used as chat workspaces.
 
+The true-delete prerequisite check and generated helper force UTF-8 before invoking the authoritative hard-delete script. This is required because `sqlite3 -json` can emit UTF-8 titles, and a non-UTF-8 Windows console code page can otherwise corrupt JSON before `ConvertFrom-Json`.
+
 After a successful permanent delete, the patched UI asks you to restart Codex so the conversation list refreshes.
 
 The core directory must contain these three files, either in release names or target names:

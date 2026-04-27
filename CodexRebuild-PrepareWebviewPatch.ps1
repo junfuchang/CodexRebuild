@@ -43,7 +43,7 @@ function Stop-RebuildProcesses {
     param([Parameter(Mandatory = $true)][object[]] $Processes)
 
     foreach ($process in $Processes) {
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
     }
 }
 

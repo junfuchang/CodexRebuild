@@ -408,7 +408,7 @@ if ($running) {
     $running | Format-Table -AutoSize | Out-String | Write-Host
     if ($StopRunningRebuild) {
         foreach ($process in $running) {
-            Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+            Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
         }
         Start-Sleep -Seconds 2
     } else {

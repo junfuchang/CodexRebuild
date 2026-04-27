@@ -14,6 +14,11 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8NoBom
+[Console]::OutputEncoding = $utf8NoBom
+$OutputEncoding = $utf8NoBom
+
 function Resolve-RootPath {
     param([string] $Path)
 
@@ -42,7 +47,7 @@ function Stop-RebuildProcesses {
     param([Parameter(Mandatory = $true)][object[]] $Processes)
 
     foreach ($process in $Processes) {
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -244,6 +249,29 @@ function Test-PowerShellScriptSyntax {
     }
 }
 
+function Invoke-HardDeleteScriptUtf8 {
+    param(
+        [Parameter(Mandatory = $true)][string] $ScriptPath,
+        [Parameter(Mandatory = $true)][string] $ThreadId,
+        [switch] $Execute
+    )
+
+    $scriptLiteral = "'" + $ScriptPath.Replace("'", "''") + "'"
+    $threadLiteral = "'" + $ThreadId.Replace("'", "''") + "'"
+    $executeText = if ($Execute) { " -Execute" } else { "" }
+    $command = @(
+        '$ErrorActionPreference = ''Stop''',
+        '$utf8NoBom = [System.Text.UTF8Encoding]::new($false)',
+        '[Console]::InputEncoding = $utf8NoBom',
+        '[Console]::OutputEncoding = $utf8NoBom',
+        '$OutputEncoding = $utf8NoBom',
+        "& $scriptLiteral -Id $threadLiteral$executeText",
+        'exit $LASTEXITCODE'
+    ) -join [Environment]::NewLine
+
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $command 2>&1
+}
+
 function Test-PatchAnchorCompatibility {
     param(
         [Parameter(Mandatory = $true)][string] $Path,
@@ -381,7 +409,7 @@ function Assert-TrueDeletePrerequisites {
             $sample = @(Invoke-SqliteLines -Database $stateDb -Sql "SELECT id FROM threads ORDER BY updated_at_ms DESC, id DESC LIMIT 1;" -SqliteCommand $sqlite)
             if ($sample.Count -gt 0) {
                 $sampleThreadId = $sample[0]
-                $dryRunOutput = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $skillScript -Id $sampleThreadId 2>&1
+                $dryRunOutput = Invoke-HardDeleteScriptUtf8 -ScriptPath $skillScript -ThreadId $sampleThreadId
                 if ($LASTEXITCODE -ne 0) {
                     $tail = (($dryRunOutput | Select-Object -Last 20) -join " ")
                     Add-PrerequisiteFailure -Failures $failures -Message "Authoritative hard-delete script dry-run failed for sample thread $sampleThreadId. Output=$tail"
@@ -436,6 +464,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8NoBom
+[Console]::OutputEncoding = $utf8NoBom
+$OutputEncoding = $utf8NoBom
 
 if ($ThreadId -notmatch '^[0-9A-Za-z-]{16,80}$') {
     throw "Refusing suspicious thread id: $ThreadId"
@@ -509,6 +542,12 @@ function ConvertTo-SqlLiteral {
     return "'" + $Value.Replace("'", "''") + "'"
 }
 
+function ConvertTo-PowerShellSingleQuotedLiteral {
+    param([Parameter(Mandatory = $true)][string] $Value)
+
+    return "'" + $Value.Replace("'", "''") + "'"
+}
+
 function Test-ThreadExists {
     param([Parameter(Mandatory = $true)][string] $ThreadId)
 
@@ -533,12 +572,17 @@ if (-not (Test-ThreadExists -ThreadId $ThreadId)) {
     exit 0
 }
 
-$argsList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $skillScript, "-Id", $ThreadId)
-if ($Execute) {
-    $argsList += "-Execute"
-}
+$command = @(
+    '$ErrorActionPreference = ''Stop''',
+    '$utf8NoBom = [System.Text.UTF8Encoding]::new($false)',
+    '[Console]::InputEncoding = $utf8NoBom',
+    '[Console]::OutputEncoding = $utf8NoBom',
+    '$OutputEncoding = $utf8NoBom',
+    ("& " + (ConvertTo-PowerShellSingleQuotedLiteral -Value $skillScript) + " -Id " + (ConvertTo-PowerShellSingleQuotedLiteral -Value $ThreadId) + $(if ($Execute) { " -Execute" } else { "" })),
+    'exit $LASTEXITCODE'
+) -join [Environment]::NewLine
 
-$output = & powershell.exe @argsList 2>&1
+$output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $command 2>&1
 $exit = $LASTEXITCODE
 $output | Write-Output
 if ($exit -ne 0) {
@@ -781,7 +825,7 @@ $states.archivedSettings = Replace-LiteralMapOnce -Path $dataControlsPath -Repla
 Assert-Patched -Path $mainPath -Needles @('case`hard-delete-thread`', "CodexRebuild-HardDeleteSession.ps1")
 Assert-Patched -Path $indexPath -Needles @("hard-delete-conversation", "CodexRebuildHardDeleteV2", "CodexRebuildDeleteActionV3", "We,CodexRebuildDeleteActionV3,qe", "\u8bf7\u91cd\u542f Codex")
 Assert-Patched -Path $dataControlsPath -Needles @("CodexRebuildDeleteArchivedV3", "settings.dataControls.archivedChats.delete", "\u8bf7\u91cd\u542f Codex")
-Assert-Patched -Path $helperPath -Needles @("remove-codex-session-hard.ps1", "Test-ThreadExists", "Thread does not exist; nothing to delete", "Remove-EmptyDirectories")
+Assert-Patched -Path $helperPath -Needles @("remove-codex-session-hard.ps1", "Test-ThreadExists", "Thread does not exist; nothing to delete", "Remove-EmptyDirectories", "OutputEncoding")
 
 $manifest = [ordered]@{
     enabledAt = (Get-Date).ToString("o")

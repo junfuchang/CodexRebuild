@@ -185,7 +185,7 @@ codex-windows-sandbox-setup.exe   -> codex-windows-sandbox-setup.exe
 - Webview patch scripts are independent: `CodexRebuild-EnableFastMode.ps1`, `CodexRebuild-EnablePluginsForApiKey.ps1`, and `CodexRebuild-EnableTrueDelete.ps1` each call `CodexRebuild-PrepareWebviewPatch.ps1` when needed.
 - Webview patch scripts fail early with an actionable message if `.\Codex\app` has not been built yet.
 - Already-applied Fast/plugin patch reruns update the manifest but do not create a new backup directory.
-- `CodexRebuild-Remove.ps1` removes generated rebuild artifacts while preserving scripts, docs, plans, and user-provided release packages, including webview patch backup folders such as `true-delete-backup`.
+- `CodexRebuild-Remove.ps1` removes generated rebuild artifacts while preserving scripts, docs, plans, and remaining release packages, including webview patch backup folders such as `true-delete-backup`.
 
 ## Conflict Handling
 

@@ -12,44 +12,83 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Resolve-RootPath {
+    param([Parameter(Mandatory = $true)][string] $Path)
+
+    $resolved = Resolve-Path -LiteralPath $Path -ErrorAction Stop
+    $item = Get-Item -LiteralPath $resolved.Path -ErrorAction Stop
+    if (-not $item.PSIsContainer) {
+        throw "Not a directory: $Path"
+    }
+
+    return $item.FullName.TrimEnd("\")
+}
+
 function Test-RebuildRuntimeFiles {
     param([Parameter(Mandatory = $true)][string] $ResourcesRoot)
 
     $checks = @(
         [pscustomobject]@{
             Name = "better-sqlite3 native module"
-            RelativePath = "app.asar.unpacked\node_modules\better-sqlite3\build\Release\better_sqlite3.node"
+            RelativePaths = @("app.asar.unpacked\node_modules\better-sqlite3\build\Release\better_sqlite3.node")
             MinLength = 1000000
         },
         [pscustomobject]@{
             Name = "node-pty pty native module"
-            RelativePath = "app.asar.unpacked\node_modules\node-pty\prebuilds\win32-x64\pty.node"
+            RelativePaths = @(
+                "app.asar.unpacked\node_modules\node-pty\prebuilds\win32-x64\pty.node",
+                "app.asar.unpacked\node_modules\node-pty\build\Release\pty.node"
+            )
             MinLength = 100000
         },
         [pscustomobject]@{
             Name = "node-pty conpty native module"
-            RelativePath = "app.asar.unpacked\node_modules\node-pty\prebuilds\win32-x64\conpty.node"
+            RelativePaths = @(
+                "app.asar.unpacked\node_modules\node-pty\prebuilds\win32-x64\conpty.node",
+                "app.asar.unpacked\node_modules\node-pty\build\Release\conpty.node"
+            )
             MinLength = 100000
         },
         [pscustomobject]@{
             Name = "bundled Browser Use skill"
-            RelativePath = "plugins\openai-bundled\plugins\browser-use\skills\browser\SKILL.md"
+            RelativePaths = @("plugins\openai-bundled\plugins\browser-use\skills\browser\SKILL.md")
             MinLength = 1000
         }
     )
 
     foreach ($check in $checks) {
-        $path = Join-Path $ResourcesRoot $check.RelativePath
-        $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
-        $length = if ($item) { $item.Length } else { 0 }
+        $bestCandidate = $null
+        foreach ($relativePath in @($check.RelativePaths)) {
+            $path = Join-Path $ResourcesRoot $relativePath
+            $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+            $length = if ($item) { $item.Length } else { 0 }
+            $candidate = [pscustomobject]@{
+                RelativePath = $relativePath
+                Path = $path
+                Exists = [bool]$item
+                Length = $length
+                Ok = ([bool]$item -and $length -ge $check.MinLength)
+            }
+
+            if ($candidate.Ok) {
+                $bestCandidate = $candidate
+                break
+            }
+
+            if ((-not $bestCandidate) -or ((-not $bestCandidate.Exists) -and $candidate.Exists) -or ($candidate.Exists -and $candidate.Length -gt $bestCandidate.Length)) {
+                $bestCandidate = $candidate
+            }
+        }
+
         [pscustomobject]@{
             Name = $check.Name
-            RelativePath = $check.RelativePath
-            Path = $path
-            Exists = [bool]$item
-            Length = $length
+            RelativePath = $bestCandidate.RelativePath
+            CandidatePaths = @($check.RelativePaths)
+            Path = $bestCandidate.Path
+            Exists = $bestCandidate.Exists
+            Length = $bestCandidate.Length
             MinLength = $check.MinLength
-            Ok = ([bool]$item -and $length -ge $check.MinLength)
+            Ok = $bestCandidate.Ok
         }
     }
 }
@@ -60,7 +99,7 @@ function Assert-RebuildRuntimeFiles {
     $results = @(Test-RebuildRuntimeFiles -ResourcesRoot $ResourcesRoot)
     $failed = @($results | Where-Object { -not $_.Ok })
     if ($failed.Count -gt 0) {
-        $failed | Select-Object Name, RelativePath, Exists, Length, MinLength | Format-Table -AutoSize | Out-String | Write-Host
+        $failed | Select-Object Name, RelativePath, @{Name = "CandidatePaths"; Expression = { $_.CandidatePaths -join "; " } }, Exists, Length, MinLength | Format-Table -AutoSize | Out-String | Write-Host
         throw "Runtime validation failed."
     }
 
@@ -137,7 +176,7 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
     $Root = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 }
 
-$rootPath = $Root.TrimEnd("\")
+$rootPath = Resolve-RootPath -Path $Root
 $appRoot = Join-Path $rootPath "Codex\app"
 $resourcesRoot = Join-Path $appRoot "resources"
 $appExe = Join-Path $appRoot "Codex.exe"

@@ -220,38 +220,65 @@ function Test-RebuildRuntimeFiles {
     $checks = @(
         [pscustomobject]@{
             Name = "better-sqlite3 native module"
-            RelativePath = "app.asar.unpacked\node_modules\better-sqlite3\build\Release\better_sqlite3.node"
+            RelativePaths = @("app.asar.unpacked\node_modules\better-sqlite3\build\Release\better_sqlite3.node")
             MinLength = 1000000
         },
         [pscustomobject]@{
             Name = "node-pty pty native module"
-            RelativePath = "app.asar.unpacked\node_modules\node-pty\prebuilds\win32-x64\pty.node"
+            RelativePaths = @(
+                "app.asar.unpacked\node_modules\node-pty\prebuilds\win32-x64\pty.node",
+                "app.asar.unpacked\node_modules\node-pty\build\Release\pty.node"
+            )
             MinLength = 100000
         },
         [pscustomobject]@{
             Name = "node-pty conpty native module"
-            RelativePath = "app.asar.unpacked\node_modules\node-pty\prebuilds\win32-x64\conpty.node"
+            RelativePaths = @(
+                "app.asar.unpacked\node_modules\node-pty\prebuilds\win32-x64\conpty.node",
+                "app.asar.unpacked\node_modules\node-pty\build\Release\conpty.node"
+            )
             MinLength = 100000
         },
         [pscustomobject]@{
             Name = "bundled Browser Use skill"
-            RelativePath = "plugins\openai-bundled\plugins\browser-use\skills\browser\SKILL.md"
+            RelativePaths = @("plugins\openai-bundled\plugins\browser-use\skills\browser\SKILL.md")
             MinLength = 1000
         }
     )
 
     foreach ($check in $checks) {
-        $path = Join-Path $ResourcesRoot $check.RelativePath
-        $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
-        $length = if ($item) { $item.Length } else { 0 }
+        $bestCandidate = $null
+        foreach ($relativePath in @($check.RelativePaths)) {
+            $path = Join-Path $ResourcesRoot $relativePath
+            $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+            $length = if ($item) { $item.Length } else { 0 }
+            $candidate = [pscustomobject]@{
+                RelativePath = $relativePath
+                Path = $path
+                Exists = [bool]$item
+                Length = $length
+                Ok = ([bool]$item -and $length -ge $check.MinLength)
+            }
+
+            if ($candidate.Ok) {
+                $bestCandidate = $candidate
+                break
+            }
+
+            if ((-not $bestCandidate) -or ((-not $bestCandidate.Exists) -and $candidate.Exists) -or ($candidate.Exists -and $candidate.Length -gt $bestCandidate.Length)) {
+                $bestCandidate = $candidate
+            }
+        }
+
         [pscustomobject]@{
             Name = $check.Name
-            RelativePath = $check.RelativePath
-            Path = $path
-            Exists = [bool]$item
-            Length = $length
+            RelativePath = $bestCandidate.RelativePath
+            CandidatePaths = @($check.RelativePaths)
+            Path = $bestCandidate.Path
+            Exists = $bestCandidate.Exists
+            Length = $bestCandidate.Length
             MinLength = $check.MinLength
-            Ok = ([bool]$item -and $length -ge $check.MinLength)
+            Ok = $bestCandidate.Ok
         }
     }
 }
@@ -263,7 +290,7 @@ function Assert-RebuildRuntimeFiles {
     $failed = @($results | Where-Object { -not $_.Ok })
     if ($failed.Count -gt 0) {
         Write-Warning "Runtime validation failed:"
-        $failed | Select-Object Name, RelativePath, Exists, Length, MinLength | Format-Table -AutoSize | Out-String | Write-Host
+        $failed | Select-Object Name, RelativePath, @{Name = "CandidatePaths"; Expression = { $_.CandidatePaths -join "; " } }, Exists, Length, MinLength | Format-Table -AutoSize | Out-String | Write-Host
         throw "Rebuilt copy is missing required Electron runtime files. Refusing to switch a startup-broken copy into place."
     }
 
@@ -350,7 +377,7 @@ if ([string]::IsNullOrWhiteSpace($WindowsAppsRoot)) {
     $WindowsAppsRoot = Join-Path $env:ProgramFiles "WindowsApps"
 }
 
-$rootPath = $Root.TrimEnd("\")
+$rootPath = (Resolve-ExistingDirectory -Path $Root).TrimEnd("\")
 $destinationRoot = Join-Path $rootPath $DestinationName
 $archiveRoot = Join-Path $rootPath "archive"
 $stagingRoot = Join-Path $rootPath ".staging"
@@ -517,6 +544,7 @@ $manifest = [ordered]@{
             [ordered]@{
                 Name = $_.Name
                 RelativePath = $_.RelativePath
+                CandidatePaths = @($_.CandidatePaths)
                 Path = $_.Path
                 Length = $_.Length
                 MinLength = $_.MinLength
